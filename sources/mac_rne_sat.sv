@@ -1,127 +1,127 @@
 `timescale 1ns/1ps
-//
-// mac_rne_sat -- implement your golden solution in this file per
-// docs/spec.md, and push it to your fork's mac_rne_sat_golden branch.
-//
+
 module mac_rne_sat (
     input  logic               clk,
-    input  logic               rst,       // synchronous, active-high
-    input  logic               en,        // accumulate a*b this cycle
-    input  logic               clr,       // clear accumulator this cycle
-    input  logic               rd,        // request readout snapshot this cycle
+    input  logic               rst,
+    input  logic               en,
+    input  logic               clr,
+    input  logic               rd,
     input  logic signed [7:0]  a,
     input  logic signed [7:0]  b,
-    output logic signed [15:0] res,       // rounded + saturated snapshot
-    output logic               res_valid, // 1-cycle pulse, one cycle after rd
-    output logic               ovf        // sticky saturation flag
+    output logic signed [15:0] res,
+    output logic               res_valid,
+    output logic               ovf
 );
 
-    // 28-bit signed accumulator
     logic signed [27:0] acc;
 
-    // Readout pipeline
-    logic rd_pending;
-    logic signed [27:0] snapshot;
-
-    // Intermediate arithmetic
-    logic signed [15:0] product;
     logic signed [27:0] product_ext;
 
-    logic signed [27:0] round_q;
-    logic [7:0] round_r;
-    logic signed [27:0] rounded_value;
+    logic signed [27:0] snap;
+    logic signed [27:0] q;
+    logic [7:0] rem;
+    logic signed [27:0] rounded;
 
-    logic saturation;
+    logic signed [15:0] next_res;
+    logic next_sat;
+
+    logic pending_valid;
+    logic pending_sat;
+    logic signed [15:0] pending_res;
+
 
     always_comb begin
-        product = $signed(a) * $signed(b);
-        product_ext = {{12{product[15]}}, product};
 
-        // Round-half-to-even
-        round_q = snapshot >>> 8;
-        round_r = snapshot - (round_q <<< 8);
+        product_ext = $signed(a) * $signed(b);
 
-        rounded_value = round_q;
+        q   = snap >>> 8;
+        rem = snap[7:0];
 
-        if (round_r > 8'd128) begin
-            rounded_value = round_q + 1;
+        rounded = q;
+
+        if (rem > 8'd128) begin
+            rounded = q + 1;
         end
-        else if (round_r == 8'd128) begin
-            // tie: round to even
-            if (round_q[0])
-                rounded_value = round_q + 1;
+        else if (rem == 8'd128) begin
+            if (q[0])
+                rounded = q + 1;
         end
 
-        saturation = 1'b0;
 
-        if (rounded_value > 28'sd32767) begin
-            saturation = 1'b1;
+        next_sat = 1'b0;
+
+        if (rounded > 28'sd32767) begin
+            next_res = 16'sh7fff;
+            next_sat = 1'b1;
         end
-        else if (rounded_value < -28'sd32768) begin
-            saturation = 1'b1;
+        else if (rounded < -28'sd32768) begin
+            next_res = -16'sd32768;
+            next_sat = 1'b1;
         end
+        else begin
+            next_res = rounded[15:0];
+        end
+
     end
 
 
     always_ff @(posedge clk) begin
 
         if (rst) begin
-            acc        <= '0;
-            res        <= '0;
-            res_valid  <= 1'b0;
-            ovf        <= 1'b0;
 
-            rd_pending <= 1'b0;
-            snapshot   <= '0;
+            acc <= '0;
+
+            res <= '0;
+            res_valid <= 1'b0;
+            ovf <= 1'b0;
+
+            pending_valid <= 1'b0;
+            pending_sat <= 1'b0;
+            pending_res <= '0;
+
+            snap <= '0;
+
         end
-
         else begin
 
-            // res_valid is delayed by one cycle after rd
-            res_valid <= rd_pending;
+            // output previous read request
+            res_valid <= pending_valid;
 
-            // Generate output from previous cycle snapshot
-            if (rd_pending) begin
+            if (pending_valid) begin
+                res <= pending_res;
 
-                if (rounded_value > 28'sd32767)
-                    res <= 16'sh7fff;
-                else if (rounded_value < -28'sd32768)
-                    res <= -16'sd32768;
-                else
-                    res <= rounded_value[15:0];
-
-
-                // Sticky overflow
-                if (saturation)
+                if (pending_sat)
                     ovf <= 1'b1;
             end
 
 
-            // Capture read request
-            rd_pending <= rd;
-
-            // Snapshot BEFORE current cycle accumulator update
-            if (rd)
-                snapshot <= acc;
-
-
-            // Accumulator update
-            if (clr && en) begin
-                acc <= product_ext;
-            end
-            else if (clr) begin
-                acc <= '0;
-            end
-            else if (en) begin
-                acc <= acc + product_ext;
-            end
-
-
-            // Clear overflow only if no saturation result lands now
-            if (clr && !rd_pending)
+            // clear ovf unless a saturating readout is landing now
+            if (clr && !(pending_valid && pending_sat))
                 ovf <= 1'b0;
 
+
+            // capture read request
+            pending_valid <= rd;
+
+            if (rd) begin
+                snap <= acc;
+                pending_res <= next_res;
+                pending_sat <= next_sat;
+            end
+
+
+            // accumulator update
+            if (clr && en)
+                acc <= product_ext;
+
+            else if (clr)
+                acc <= '0;
+
+            else if (en)
+                acc <= acc + product_ext;
+
         end
+
     end
 
 endmodule
