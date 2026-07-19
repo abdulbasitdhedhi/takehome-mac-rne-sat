@@ -71,7 +71,8 @@ saturation applies to the **rounded** value.
 
 **Registration and hold.** `res` and `res_valid` are registered outputs. In
 cycle *t+1*, `res_valid` is 1 and `res` carries the rounded, saturated
-snapshot. `res_valid` is exactly one cycle wide per `rd`. Between readouts,
+snapshot. The latency between `rd` and `res_valid` is exactly one clock cycle.
+`res_valid` is exactly one cycle wide per `rd`. Between readouts,
 `res` **holds** its last value; it does not clear when `res_valid` is low.
 Back-to-back `rd` cycles are permitted and each takes its own snapshot.
 
