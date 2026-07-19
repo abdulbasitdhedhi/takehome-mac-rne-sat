@@ -69,12 +69,13 @@ to the signed 16-bit range `[−32768, +32767]`. Note the order: rounding is
 performed first and may itself carry the value out of the 16-bit range;
 saturation applies to the **rounded** value.
 
-**Registration and hold.** `res` and `res_valid` are registered outputs. In
-cycle *t+1*, `res_valid` is 1 and `res` carries the rounded, saturated
-snapshot. The latency between `rd` and `res_valid` is exactly one clock cycle.
-`res_valid` is exactly one cycle wide per `rd`. Between readouts,
-`res` **holds** its last value; it does not clear when `res_valid` is low.
-Back-to-back `rd` cycles are permitted and each takes its own snapshot.
+**Registration and hold.** `res` and `res_valid` are registered outputs. A
+`rd` asserted in cycle *t* is answered in cycle *t+1* and no later: on the
+rising edge into cycle *t+1*, `res_valid` is 1 and `res` carries the rounded,
+saturated snapshot. The latency from `rd` to `res_valid` is exactly one clock
+cycle — a single output-register delay — with no intermediate pipeline or
+holding stage between them. `res_valid` is exactly one cycle wide per `rd`.
+Between readouts, `res` **holds** its last value; it does not clear when `res_valid` is low. Back-to-back `rd` cycles are permitted and each takes its own snapshot.
 
 Worked examples (`snapshot → res`):
 
