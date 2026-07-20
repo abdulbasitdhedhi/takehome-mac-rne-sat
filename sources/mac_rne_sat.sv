@@ -13,16 +13,23 @@ module mac_rne_sat (
     output logic               ovf
 );
 
+    // Signed 16-bit saturation bounds, compared against the 28-bit rounded value.
+    localparam logic signed [27:0] SAT_MAX = 28'sd32767;
+    localparam logic signed [27:0] SAT_MIN = -28'sd32768;
+    // Round-half-to-even tie point at the 8 LSBs (256/2).
+    localparam logic        [7:0]  ROUND_HALF = 8'h80;
+
     logic signed [27:0] acc;
 
     logic signed [27:0] product_ext;
-    logic signed [27:0] q;
-    logic [7:0] rem;
+    logic signed [27:0] q;      // q = floor(acc / 256)
+    logic        [7:0]  rem;    // rem = acc mod 256, always in [0, 255]
     logic signed [27:0] rounded;
-    logic sat;
+    logic signed [15:0] res_next;
+    logic               sat;
 
     always_comb begin
-        product_ext = $signed(a) * $signed(b);
+        product_ext = a * b;
 
         q   = acc >>> 8;
         rem = acc[7:0];
@@ -30,21 +37,26 @@ module mac_rne_sat (
         rounded = q;
 
         // round-half-to-even
-        if (rem > 8'h80) begin
+        if (rem > ROUND_HALF) begin
             rounded = q + 1;
         end
-        else if (rem == 8'h80) begin
+        else if (rem == ROUND_HALF) begin
             if (q[0])
                 rounded = q + 1;
         end
 
-        sat = 1'b0;
-        if (rounded > 28'sd32767)
-            sat = 1'b1;
-        else if (rounded < -28'sd32768)
-            sat = 1'b1;
+        // saturation applied after rounding; res_next and sat share one source
+        sat      = 1'b0;
+        res_next = rounded[15:0];
+        if (rounded > SAT_MAX) begin
+            sat      = 1'b1;
+            res_next = 16'sh7fff;
+        end
+        else if (rounded < SAT_MIN) begin
+            sat      = 1'b1;
+            res_next = 16'sh8000;
+        end
     end
-
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -59,13 +71,7 @@ module mac_rne_sat (
 
             // read snapshot BEFORE accumulator update
             if (rd) begin
-                if (rounded > 28'sd32767)
-                    res <= 16'sh7fff;
-                else if (rounded < -28'sd32768)
-                    res <= -16'sd32768;
-                else
-                    res <= rounded[15:0];
-
+                res <= res_next;
                 if (sat)
                     ovf <= 1'b1;
             end
@@ -74,7 +80,6 @@ module mac_rne_sat (
             // produces a saturating readout
             if (clr && !(rd && sat))
                 ovf <= 1'b0;
-
 
             // accumulator priority:
             // clr+en -> load product
